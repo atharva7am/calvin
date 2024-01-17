@@ -84,50 +84,42 @@ def count_success(results):
     return step_success
 
 
-def print_and_save(results, sequences, log_dir, epoch=None):
-    current_data = {}
-    print(f"Results for Epoch {epoch}:")
-    avg_seq_len = np.mean(results)
-    chain_sr = {i + 1: sr for i, sr in enumerate(count_success(results))}
-    print(f"Average successful sequence length: {avg_seq_len}")
-    print("Success rates for i instructions in a row:")
-    for i, sr in chain_sr.items():
-        print(f"{i}: {sr * 100:.1f}%")
+def print_and_save(results, sequences, log_dir, epoch=None, exp=None):
+    file = log_dir / f"results_{exp}.txt"
+    with open(file, "w") as f:
+        f.write(f"Results for Experiment {exp}:\n")
+        print(f"Results for Exp {exp}:")
+        avg_seq_len = np.mean(results)
+        chain_sr = {i + 1: sr*100 for i, sr in enumerate(count_success(results))}
+        f.write(f"Average successful sequence length: {avg_seq_len}\n")
+        print(f"Average successful sequence length: {avg_seq_len}")
+        f.write("Success rates for i instructions in a row:\n")
+        print("Success rates for i instructions in a row:")
+        for i, sr in chain_sr.items():
+            f.write(f"{i}: {sr}%\n")
+            print(f"{i}: {sr}%")
 
-    cnt_success = Counter()
-    cnt_fail = Counter()
+        cnt_success = Counter()
+        cnt_fail = Counter()
 
-    for result, (_, sequence) in zip(results, sequences):
-        for successful_tasks in sequence[:result]:
-            cnt_success[successful_tasks] += 1
-        if result < len(sequence):
-            failed_task = sequence[result]
-            cnt_fail[failed_task] += 1
+        for result, (_, sequence) in zip(results, sequences):
+            for successful_tasks in sequence[:result]:
+                cnt_success[successful_tasks] += 1
+            if result < len(sequence):
+                failed_task = sequence[result]
+                cnt_fail[failed_task] += 1
 
-    total = cnt_success + cnt_fail
-    task_info = {}
-    for task in total:
-        task_info[task] = {"success": cnt_success[task], "total": total[task]}
-        print(f"{task}: {cnt_success[task]} / {total[task]} |  SR: {cnt_success[task] / total[task] * 100:.1f}%")
+        total = cnt_success + cnt_fail
+        task_info = {}
+        for task in total:
+            task_info[task] = {"success": cnt_success[task], "total": total[task], "SR": cnt_success[task] / total[task] * 100}
+            f.write(f"{task}: {cnt_success[task]} / {total[task]} |  SR: {cnt_success[task] / total[task] * 100:.1f}%\n")
+            print(f"{task}: {cnt_success[task]} / {total[task]} |  SR: {cnt_success[task] / total[task] * 100:.1f}%")
 
-    data = {"avg_seq_len": avg_seq_len, "chain_sr": chain_sr, "task_info": task_info}
-
-    current_data[epoch] = data
-
-    print()
-    previous_data = {}
-    try:
-        with open(log_dir / "results.json", "r") as file:
-            previous_data = json.load(file)
-    except FileNotFoundError:
-        pass
-    json_data = {**previous_data, **current_data}
-    with open(log_dir / "results.json", "w") as file:
-        json.dump(json_data, file)
-    print(
-        f"Best model: epoch {max(json_data, key=lambda x: json_data[x]['avg_seq_len'])} "
-        f"with average sequences length of {max(map(lambda x: x['avg_seq_len'], json_data.values()))}"
-    )
+        data = [{"exp":exp}, {"avg_seq_len": avg_seq_len}, {"chain_sr": chain_sr}, {"task_info": task_info}]
+        print()
+        with open(log_dir / f"results_{exp}.json", "w") as file:
+            json.dump(data, file)
 
 
 def create_tsne(plan_dict, log_dir, epoch):

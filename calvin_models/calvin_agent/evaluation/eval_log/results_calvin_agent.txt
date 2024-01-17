@@ -1,0 +1,10 @@
+Results for Experiment calvin_agent:
+Average successful sequence length: 0.0
+Success rates for i instructions in a row:
+1: 0.0%
+2: 0.0%
+3: 0.0%
+4: 0.0%
+5: 0.0%
+push_blue_block_right: 0 / 1 |  SR: 0.0%
+open_drawer: 0 / 1 |  SR: 0.0%

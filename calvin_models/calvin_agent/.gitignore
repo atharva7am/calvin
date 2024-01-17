@@ -3,3 +3,4 @@ play_data/
 __pycache__/
 results/
 runs/
+output/

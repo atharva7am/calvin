@@ -1,0 +1,50 @@
+save_dir: /home/amete7/calvin/calvin_models/calvin_agent/evaluation/eval_log/output
+exp_name: eval
+
+hydra:
+  run:
+    dir: ${save_dir}/${exp_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+paths:
+    stats_file_path: /satassdscratch/scml-shared/calvin_data/task_D_D/training/statistics.yaml
+    model_weights_path: /satassdscratch/scml-shared/calvin_data/task_D_D/ckpt_conv_8_mlp_1000.bin
+    prior_weights_path: /satassdscratch/scml-shared/calvin_data/task_D_D/ckpt_tprior_conv_8_mlp_both_cat_500.bin
+    processed_data_path: /satassdscratch/scml-shared/calvin_data/task_D_D/clip_data_lang.npz
+
+prior:
+    vocab_size: 1004
+    block_size: 16 # max skill sequence length
+    output_dim: 1001
+    attach_pos: [0,0]
+    eos_token: 1000
+    pad_token: [1001,1002]
+
+model:
+    image_encoder_dim: 512
+    gripper_state_dim: 7
+    obs_entries: [1,1]
+    act_dim: 7
+    encoder_dim: 512
+    skill_block_size: 32
+    encoder_type: 'transformer'
+    encoder_heads: 8
+    encoder_layers: 2
+    resid_pdrop: 0.1
+    attn_pdrop: 0.1
+    use_causal_attention: True
+    position_embedding_type: 'rotary'
+    vq_type: 'fsq'
+    codebook_dim: 64
+    codebook_entry: 512
+    vq_decay: 0.99
+    commitment_loss_weight: 0.25
+    fsq_level: [8,5,5,5]
+    kernel_sizes: [4,3] # [8,4] for 64 and [8,2] for 32, [8,4] for 32 for 10 indices
+    strides: [2,2]
+    dilations: [1,1] # [1,2] for 64 and [1,1] for 32 for 10 indices
+    use_residual: 'False'
+    pooling_layers: null
+    decoder_type: 'mingpt'
+    decoder_dim: 512
+    gru_hidden_dim: 512
+     

@@ -1,11 +1,13 @@
 import argparse
+from hydra import initialize, compose
 from collections import Counter, defaultdict
 import logging
 import os
 from pathlib import Path
 import sys
 import time
-
+import traceback
+import cv2
 # This is for using the locally installed repo clone when using slurm
 from calvin_agent.models.calvin_base_model import CalvinBaseModel
 
@@ -30,14 +32,22 @@ from pytorch_lightning import seed_everything
 from termcolor import colored
 import torch
 from tqdm.auto import tqdm
-
+from transformers import CLIPModel, CLIPProcessor
+from calvin_agent.utils.utils import add_text, format_sftp_path
 from calvin_env.envs.play_table_env import get_env
+
+sys.path.append('/home/amete7/diffusion_dynamics/diff_skill/code')
+from model import SkillAutoEncoder
+from gpt_prior_global import GPT, GPTConfig
 
 logger = logging.getLogger(__name__)
 
-EP_LEN = 360
-NUM_SEQUENCES = 1000
-
+EP_LEN = 192
+NUM_SEQUENCES = 2
+ACTION_HORIZON = 32
+DEFAULT_LOG = "/home/amete7/calvin/calvin_models/calvin_agent/evaluation/eval_log"
+SAVE_ROLLOUT_VIDEO = False
+EXP_NAME = "calvin_agent"
 
 def get_epoch(checkpoint):
     if "=" not in checkpoint.stem:
@@ -45,25 +55,65 @@ def get_epoch(checkpoint):
     checkpoint.stem.split("=")[1]
 
 
-def make_env(dataset_path):
-    val_folder = Path(dataset_path) / "validation"
-    env = get_env(val_folder, show_gui=False)
-
-    # insert your own env wrapper
-    # env = Wrapper(env)
-    return env
-
-
 class CustomModel(CalvinBaseModel):
-    def __init__(self):
-        logger.warning("Please implement these methods as an interface to your custom model architecture.")
-        raise NotImplementedError
+    def __init__(self,config_path):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.max_indices = 8
+        self.dummy_index = 1001
 
-    def reset(self):
+        model_name = "openai/clip-vit-base-patch32"
+        self.processor = CLIPProcessor.from_pretrained(model_name)
+        self.clip_model = CLIPModel.from_pretrained(model_name)
+        self.clip_model = self.clip_model.to(self.device)
+
+        model_cfg = OmegaConf.load(config_path)
+        model_ckpt = model_cfg.paths.model_weights_path
+        priot_ckpt = model_cfg.paths.prior_weights_path
+
+        gpt_config = GPTConfig(vocab_size=model_cfg.prior.vocab_size, block_size=model_cfg.prior.block_size, output_dim=model_cfg.prior.output_dim, discrete_input=True)
+        self.gpt_prior_model = GPT(gpt_config).to(self.device)
+        state_dict = torch.load(priot_ckpt, map_location='cuda')
+        self.gpt_prior_model.load_state_dict(state_dict)
+        self.gpt_prior_model = self.gpt_prior_model.to(self.device)
+        self.gpt_prior_model.eval()
+        print('gpt_prior_model_loaded')
+
+        self.decoder = SkillAutoEncoder(model_cfg.model)
+        state_dict = torch.load(model_ckpt, map_location='cuda')
+        self.decoder.load_state_dict(state_dict)
+        self.decoder = self.decoder.to(self.device)
+        self.decoder.eval()
+        print('decoder_loaded')
+
+    def reset(self,lang_annotation):
         """
         This is called
         """
-        raise NotImplementedError
+        self.lang_emb = self.get_language_features(lang_annotation)
+    
+    def get_clip_features(self,image):
+        inputs = self.processor(images=image, return_tensors="pt")
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        with torch.no_grad():
+            image_features = self.clip_model.get_image_features(**inputs)
+        return image_features
+
+    def get_language_features(self,text):
+        inputs = self.processor(text=text, return_tensors="pt")
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        with torch.no_grad():
+            language_features = self.clip_model.get_text_features(**inputs)
+        return language_features
+
+    def get_indices(self, attach_emb):
+        indices = [self.dummy_index]
+        for _ in range(self.max_indices):
+            x = torch.tensor(indices).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                logits = self.gpt_prior_model(x, None, attach_emb, [0,0])
+            next_token = logits[0,-1,:].argmax().item()
+            indices.append(next_token)
+        return torch.tensor(indices[1:]).unsqueeze(0).to(self.device)
 
     def step(self, obs, goal):
         """
@@ -73,10 +123,30 @@ class CustomModel(CalvinBaseModel):
         Returns:
             action: predicted action
         """
-        raise NotImplementedError
+        observation = obs
+        # print(observation['rgb_obs'])
+        front_rgb = observation['rgb_obs']['rgb_static']
+        gripper_rgb = observation['rgb_obs']['rgb_gripper']
+        robot_state = observation['robot_obs']
+        # print(robot_state.shape,'robot_state_shape')
+        robot_state = np.concatenate([robot_state[:6],[robot_state[14]]])
+        robot_state = torch.tensor(robot_state).unsqueeze(0).to(self.device)
+        front_emb = self.get_clip_features(front_rgb)
+        gripper_emb = self.get_clip_features(gripper_rgb)
+        
+        init_emb = torch.cat((front_emb,gripper_emb,robot_state),dim=-1).float().to(self.device)
+        attach_emb = (self.lang_emb,init_emb)
 
+        with torch.no_grad():
+            indices = self.get_indices(attach_emb)
+        # print(indices,'indices')
+        with torch.no_grad():
+            z = self.decoder.vq.indices_to_codes(indices)
+            action = self.decoder.decode(z, init_emb).squeeze(0).cpu().numpy()
+        action[:,-1] = (((action[:,-1] >= 0) * 2) - 1).astype(int)
+        return action
 
-def evaluate_policy(model, env, epoch, eval_log_dir=None, debug=False, create_plan_tsne=False):
+def evaluate_policy(model, env, epoch=0, eval_log_dir=DEFAULT_LOG, debug=False, create_plan_tsne=False):
     """
     Run this function to evaluate a model on the CALVIN challenge.
 
@@ -116,7 +186,7 @@ def evaluate_policy(model, env, epoch, eval_log_dir=None, debug=False, create_pl
 
     if create_plan_tsne:
         create_tsne(plans, eval_log_dir, epoch)
-    print_and_save(results, eval_sequences, eval_log_dir, epoch)
+    print_and_save(results, eval_sequences, eval_log_dir, epoch, exp=EXP_NAME)
 
     return results
 
@@ -154,32 +224,41 @@ def rollout(env, model, task_oracle, subtask, val_annotations, plans, debug):
     obs = env.get_obs()
     # get lang annotation for subtask
     lang_annotation = val_annotations[subtask][0]
-    model.reset()
+    model.reset(lang_annotation)
     start_info = env.get_info()
+    save_video = SAVE_ROLLOUT_VIDEO
+    if save_video:
+        output_video_path = f'rollout_{subtask}.mp4'
+        frame_size = (200,200)
+        fps = 15
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Use 'mp4v' or 'xvid' for MP4, 'MJPG' for AVI
+        video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, frame_size)
 
-    for step in range(EP_LEN):
-        action = model.step(obs, lang_annotation)
-        obs, _, _, current_info = env.step(action)
-        if debug:
-            img = env.render(mode="rgb_array")
-            join_vis_lang(img, lang_annotation)
-            # time.sleep(0.1)
-        if step == 0:
-            # for tsne plot, only if available
-            collect_plan(model, plans, subtask)
+    for step in range(EP_LEN//ACTION_HORIZON):
+        actions = model.step(obs, lang_annotation)
+        for timestep in range(ACTION_HORIZON):
+            action_to_take = actions[timestep].copy()
+            action_to_take = ((action_to_take[0],action_to_take[1],action_to_take[2]),(action_to_take[3],action_to_take[4],action_to_take[5]),(action_to_take[-1],))
+            obs, _, _, current_info = env.step(action_to_take)
+            if save_video:
+                rgb = env.render(mode="rgb_array")[:,:,::-1]
+                video_writer.write(rgb)
 
-        # check if current step solves a task
-        current_task_info = task_oracle.get_task_info_for_set(start_info, current_info, {subtask})
-        if len(current_task_info) > 0:
-            if debug:
-                print(colored("success", "green"), end=" ")
-            return True
+            # check if current step solves a task
+            current_task_info = task_oracle.get_task_info_for_set(start_info, current_info, {subtask})
+            if len(current_task_info) > 0:
+                if debug:
+                    print(colored("success", "green"), end=" ")
+                return True
+    if save_video:
+        video_writer.release()
+        print(f"Video saved to {output_video_path}")
     if debug:
         print(colored("fail", "red"), end=" ")
     return False
 
 
-def main():
+def main(env_cfg):
     seed_everything(0, workers=True)  # type:ignore
     parser = argparse.ArgumentParser(description="Evaluate a trained model on multistep sequences with language goals.")
     parser.add_argument("--dataset_path", type=str, help="Path to the dataset root directory.")
@@ -216,12 +295,14 @@ def main():
     parser.add_argument("--eval_log_dir", default=None, type=str, help="Where to log the evaluation results.")
 
     parser.add_argument("--device", default=0, type=int, help="CUDA device")
+
+    parser.add_argument("--config_path", default="/home/amete7/calvin/calvin_models/conf/diff_skill_config.yaml", type=str, help="Path to model config file.")
     args = parser.parse_args()
 
     # evaluate a custom model
     if args.custom_model:
-        model = CustomModel()
-        env = make_env(args.dataset_path)
+        model = CustomModel(args.config_path)
+        env = hydra.utils.instantiate(env_cfg.env)
         evaluate_policy(model, env, debug=args.debug)
     else:
         assert "train_folder" in args
@@ -253,4 +334,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    with initialize(config_path="../../../calvin_env/conf/"):
+        # print("config path:")
+        env_cfg = compose(config_name="config_data_collection.yaml", overrides=["cameras=static_and_gripper"])
+        env_cfg.env["use_egl"] = False
+        env_cfg.env["show_gui"] = False
+        env_cfg.env["use_vr"] = False
+        env_cfg.env["use_scene_info"] = True
+    try:
+        # Your code that may raise an exception here
+        main(env_cfg)
+    except Exception as e:
+        # Handle the exception or simply do nothing to suppress the local variable display
+        traceback.print_exc()
