@@ -1,4 +1,4 @@
-Results for Experiment calvin_agent:
+Results for Experiment eval:
 Average successful sequence length: 0.0
 Success rates for i instructions in a row:
 1: 0.0%
