@@ -1,0 +1,40 @@
+Results for Experiment 4_0_1000_trans_prior_100:
+Average successful sequence length: 0.354
+Success rates for i instructions in a row:
+1: 27.700000000000003%
+2: 6.2%
+3: 1.4000000000000001%
+4: 0.1%
+5: 0.0%
+turn_off_led: 24 / 65 |  SR: 36.9%
+open_drawer: 97 / 145 |  SR: 66.9%
+turn_on_led: 44 / 69 |  SR: 63.8%
+turn_on_lightbulb: 47 / 53 |  SR: 88.7%
+turn_off_lightbulb: 32 / 45 |  SR: 71.1%
+lift_red_block_table: 11 / 39 |  SR: 28.2%
+lift_blue_block_table: 2 / 37 |  SR: 5.4%
+move_slider_right: 30 / 116 |  SR: 25.9%
+rotate_pink_block_right: 1 / 41 |  SR: 2.4%
+lift_pink_block_table: 3 / 37 |  SR: 8.1%
+place_in_slider: 5 / 11 |  SR: 45.5%
+move_slider_left: 25 / 90 |  SR: 27.8%
+close_drawer: 3 / 49 |  SR: 6.1%
+push_red_block_right: 5 / 38 |  SR: 13.2%
+rotate_red_block_left: 2 / 31 |  SR: 6.5%
+push_pink_block_right: 2 / 35 |  SR: 5.7%
+push_into_drawer: 3 / 26 |  SR: 11.5%
+rotate_blue_block_right: 2 / 38 |  SR: 5.3%
+lift_red_block_slider: 1 / 37 |  SR: 2.7%
+rotate_red_block_right: 1 / 38 |  SR: 2.6%
+place_in_drawer: 1 / 6 |  SR: 16.7%
+rotate_pink_block_left: 3 / 27 |  SR: 11.1%
+lift_pink_block_slider: 2 / 33 |  SR: 6.1%
+push_pink_block_left: 4 / 41 |  SR: 9.8%
+push_red_block_left: 1 / 43 |  SR: 2.3%
+rotate_blue_block_left: 1 / 35 |  SR: 2.9%
+push_blue_block_left: 1 / 42 |  SR: 2.4%
+push_blue_block_right: 1 / 42 |  SR: 2.4%
+lift_blue_block_slider: 0 / 41 |  SR: 0.0%
+stack_block: 0 / 2 |  SR: 0.0%
+lift_red_block_drawer: 0 / 1 |  SR: 0.0%
+lift_blue_block_drawer: 0 / 1 |  SR: 0.0%

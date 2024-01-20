@@ -1,0 +1,40 @@
+Results for Experiment lr55c_pad500:
+Average successful sequence length: 0.421
+Success rates for i instructions in a row:
+1: 32.4%
+2: 8.1%
+3: 1.4000000000000001%
+4: 0.2%
+5: 0.0%
+turn_off_led: 50 / 67 |  SR: 74.6%
+open_drawer: 113 / 148 |  SR: 76.4%
+turn_on_led: 46 / 69 |  SR: 66.7%
+move_slider_left: 33 / 95 |  SR: 34.7%
+push_red_block_left: 3 / 51 |  SR: 5.9%
+move_slider_right: 33 / 118 |  SR: 28.0%
+turn_on_lightbulb: 49 / 55 |  SR: 89.1%
+lift_blue_block_table: 5 / 40 |  SR: 12.5%
+turn_off_lightbulb: 37 / 42 |  SR: 88.1%
+lift_pink_block_slider: 8 / 42 |  SR: 19.0%
+lift_pink_block_table: 9 / 40 |  SR: 22.5%
+rotate_red_block_left: 1 / 33 |  SR: 3.0%
+push_pink_block_right: 7 / 41 |  SR: 17.1%
+close_drawer: 8 / 45 |  SR: 17.8%
+lift_red_block_slider: 1 / 40 |  SR: 2.5%
+place_in_slider: 2 / 16 |  SR: 12.5%
+rotate_pink_block_left: 3 / 27 |  SR: 11.1%
+rotate_pink_block_right: 1 / 43 |  SR: 2.3%
+rotate_blue_block_left: 2 / 37 |  SR: 5.4%
+push_into_drawer: 3 / 23 |  SR: 13.0%
+lift_red_block_table: 2 / 41 |  SR: 4.9%
+push_pink_block_left: 2 / 45 |  SR: 4.4%
+push_blue_block_right: 1 / 39 |  SR: 2.6%
+push_red_block_right: 2 / 44 |  SR: 4.5%
+rotate_blue_block_right: 0 / 40 |  SR: 0.0%
+push_blue_block_left: 0 / 47 |  SR: 0.0%
+rotate_red_block_right: 0 / 44 |  SR: 0.0%
+lift_blue_block_slider: 0 / 38 |  SR: 0.0%
+stack_block: 0 / 6 |  SR: 0.0%
+place_in_drawer: 0 / 3 |  SR: 0.0%
+lift_pink_block_drawer: 0 / 1 |  SR: 0.0%
+lift_red_block_drawer: 0 / 1 |  SR: 0.0%

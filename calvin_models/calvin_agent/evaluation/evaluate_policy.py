@@ -39,6 +39,9 @@ from calvin_env.envs.play_table_env import get_env
 sys.path.append('/home/amete7/diffusion_dynamics/diff_skill/code')
 from model import SkillAutoEncoder
 from gpt_prior_global import GPT, GPTConfig
+from diffusion_prior import get_sample
+from unet import ConditionalUnet1D
+from diffusers import DDPMScheduler, DDIMScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +61,12 @@ def get_epoch(checkpoint):
 class CustomModel(CalvinBaseModel):
     def __init__(self,exp_cfg):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.max_indices = 8
+        self.max_indices = exp_cfg.gpt_prior.code_seq_size
         self.dummy_index = 1001
         self.prior_type = exp_cfg.prior_type
+        self.num_inference_steps = exp_cfg.diff_prior.diffusion_steps
+        self.codebook_size = exp_cfg.diff_prior.codebook_size
+        self.input_dim = exp_cfg.diff_prior.input_dim
 
         model_name = "openai/clip-vit-base-patch32"
         self.processor = CLIPProcessor.from_pretrained(model_name)
@@ -76,6 +82,30 @@ class CustomModel(CalvinBaseModel):
             self.gpt_prior_model = self.gpt_prior_model.to(self.device)
             self.gpt_prior_model.eval()
             print('gpt_prior_model_loaded')
+        elif self.prior_type == 'diff':
+            self.net = ConditionalUnet1D(
+                input_dim=exp_cfg.diff_prior.input_dim, 
+                local_cond_dim=None,
+                global_cond_dim=512+1031,
+                diffusion_step_embed_dim=256,
+                down_dims=[256,512,1024],
+                kernel_size=3,
+                n_groups=8,
+                cond_predict_scale=True
+            )
+            ckpt = torch.load(exp_cfg.paths.diff_prior_weights_path, map_location='cuda')
+            self.net.load_state_dict(ckpt)
+            self.net = self.net.to(self.device)
+            self.net.eval()
+            print('diffusion_prior_loaded')
+            if exp_cfg.diff_prior.schedule_type == 'ddpm':
+                self.noise_scheduler = DDPMScheduler(num_train_timesteps=exp_cfg.diff_prior.diffusion_steps,beta_schedule=exp_cfg.diff_prior.beta_schedule,)
+            elif exp_cfg.diff_prior.schedule_type == 'ddim':
+                self.noise_scheduler = DDIMScheduler(num_train_timesteps=exp_cfg.diff_prior.diffusion_steps,beta_schedule=exp_cfg.diff_prior.beta_schedule,)
+            else:
+                raise NotImplementedError('Unknown diffusion type | choose from ddpm or ddim')
+        else:
+            raise NotImplementedError('Unknown prior type | choose from gpt or diff')
 
         model_ckpt = exp_cfg.paths.model_weights_path
         self.decoder = SkillAutoEncoder(exp_cfg.model)
@@ -115,6 +145,12 @@ class CustomModel(CalvinBaseModel):
                 next_token = logits[0,-1,:].argmax().item()
                 indices.append(next_token)
             return torch.tensor(indices[1:]).unsqueeze(0).to(self.device)
+        elif self.prior_type == 'diff':
+            global_cond = torch.cat([attach_emb[1],attach_emb[0]],dim=-1).to(self.device)
+            indices = get_sample(self.noise_scheduler, self.net, global_cond, num_inference_steps=self.num_inference_steps, batch_size=1, shape=(8, self.input_dim), device=self.device, codebook_size=self.codebook_size)
+            return indices
+        else:
+            raise NotImplementedError('Unknown prior type | choose from gpt or diff')
 
     def step(self, obs, goal):
         """
@@ -301,9 +337,10 @@ def main(exp_cfg):
     # args = parser.parse_args()
     # evaluate a custom model
     # if args.custom_model:
+    logger.info(f"Running experiment {exp_cfg.exp_name}")
     model = CustomModel(exp_cfg)
     env = hydra.utils.instantiate(exp_cfg.env)
-    evaluate_policy(model, env, exp_cfg, debug=False)
+    evaluate_policy(model, env, exp_cfg, debug=exp_cfg.debug)
     # else:
     #     assert "train_folder" in args
 
