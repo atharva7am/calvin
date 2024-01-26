@@ -42,7 +42,8 @@ from gpt_prior_global import GPT, GPTConfig
 from diffusion_prior import get_sample
 from unet import ConditionalUnet1D
 from diffusers import DDPMScheduler, DDIMScheduler
-
+import torchvision
+from torchvision import transforms as torch_transforms
 logger = logging.getLogger(__name__)
 
 # EP_LEN = 192
@@ -72,6 +73,16 @@ class CustomModel(CalvinBaseModel):
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.clip_model = CLIPModel.from_pretrained(model_name)
         self.clip_model = self.clip_model.to(self.device)
+        self.resize_transform = torch_transforms.Compose([
+                torch_transforms.ToPILImage(),
+                torch_transforms.Resize((224, 224)),
+                torch_transforms.ToTensor(),
+                torch_transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # normalization parameters for pretrained torchvision models
+            ])
+        self.net = torchvision.models.resnet18(weights='ResNet18_Weights.DEFAULT')
+        self.net.eval()
+        self.net = torch.nn.Sequential(*list(self.net.children())[:-1]) # before linear
+        self.net = self.net.to(self.device)
 
         if self.prior_type == 'gpt':
             gpt_priot_ckpt = exp_cfg.paths.gpt_prior_weights_path
@@ -86,7 +97,7 @@ class CustomModel(CalvinBaseModel):
             self.net = ConditionalUnet1D(
                 input_dim=exp_cfg.diff_prior.input_dim, 
                 local_cond_dim=None,
-                global_cond_dim=512+1031,
+                global_cond_dim=exp_cfg.diff_prior.cond_dim,
                 diffusion_step_embed_dim=256,
                 down_dims=[256,512,1024],
                 kernel_size=3,
@@ -127,6 +138,12 @@ class CustomModel(CalvinBaseModel):
         with torch.no_grad():
             image_features = self.clip_model.get_image_features(**inputs)
         return image_features
+    
+    def get_resnet18_features(self,image_tensor):
+        image_tensor = torch.tensor(image_tensor).permute(2,0,1)
+        image_tensor = self.resize_transform(image_tensor).unsqueeze(0)
+        with torch.no_grad():
+            return self.net(image_tensor.to(self.device)).squeeze(2).squeeze(2)
 
     def get_language_features(self,text):
         inputs = self.processor(text=text, return_tensors="pt")
@@ -168,8 +185,8 @@ class CustomModel(CalvinBaseModel):
         # print(robot_state.shape,'robot_state_shape')
         robot_state = np.concatenate([robot_state[:6],[robot_state[14]]])
         robot_state = torch.tensor(robot_state).unsqueeze(0).to(self.device)
-        front_emb = self.get_clip_features(front_rgb)
-        gripper_emb = self.get_clip_features(gripper_rgb)
+        front_emb = self.get_resnet18_features(front_rgb)
+        gripper_emb = self.get_resnet18_features(gripper_rgb)
         
         init_emb = torch.cat((front_emb,gripper_emb,robot_state),dim=-1).float().to(self.device)
         attach_emb = (self.lang_emb,init_emb)
